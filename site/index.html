@@ -209,6 +209,67 @@ body {
   background: rgba(255,255,255,0.04);
 }
 
+.search-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.search-section input {
+  width: 100%;
+  padding: 6px 8px 6px 26px;
+  font-size: 11px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 5px;
+  background: rgba(255,255,255,0.04);
+  color: var(--fg);
+  outline: none;
+  transition: border-color 0.15s;
+  font-family: inherit;
+}
+.search-section input:focus {
+  border-color: rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.06);
+}
+.search-section input::placeholder { color: var(--fg2); opacity: 0.6; }
+.search-wrap {
+  position: relative;
+}
+.search-wrap::before {
+  content: "\1F50D";
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  opacity: 0.4;
+  pointer-events: none;
+}
+.search-section select {
+  width: 100%;
+  padding: 5px 6px;
+  font-size: 11px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 5px;
+  background: var(--bg2);
+  color: var(--fg);
+  outline: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+.search-section select:focus {
+  border-color: rgba(255,255,255,0.25);
+}
+.search-section select option {
+  background: var(--bg2);
+  color: var(--fg);
+}
+.search-results-count {
+  font-size: 10px;
+  color: var(--fg2);
+  min-height: 14px;
+}
+
 .gradient-legend {
   display: flex;
   align-items: center;
@@ -296,6 +357,16 @@ canvas#canvas {
     <button onclick="setView('columns')">Colonne</button>
   </div>
 
+  <div class="search-section">
+    <div class="search-wrap">
+      <input type="text" id="searchInput" placeholder="Cerca professione..." data-it="Cerca professione..." data-en="Search profession...">
+    </div>
+    <select id="ggFilter">
+      <option value="" data-it="Tutti i Grandi Gruppi" data-en="All Major Groups">Tutti i Grandi Gruppi</option>
+    </select>
+    <div class="search-results-count" id="searchCount"></div>
+  </div>
+
   <div class="stat-section">
     <h3 id="labelProfessions" data-it="Professioni" data-en="Professions">Professioni</h3>
     <div class="stat-big" id="statTotalProf">—</div>
@@ -372,6 +443,10 @@ const T = {
     category: "Grande Gruppo",
     exposure: "Esposizione IA",
     jobs: "professioni",
+    searchPlaceholder: "Cerca professione...",
+    allGG: "Tutti i Grandi Gruppi",
+    matchesOf: "su",
+    matchesFound: "trovate",
   },
   en: {
     title: "AI Exposure of the Italian Job Market",
@@ -395,6 +470,10 @@ const T = {
     category: "Major Group",
     exposure: "AI Exposure",
     jobs: "professions",
+    searchPlaceholder: "Search profession...",
+    allGG: "All Major Groups",
+    matchesOf: "of",
+    matchesFound: "found",
   }
 };
 
@@ -414,6 +493,11 @@ function setLang(lang) {
   document.querySelectorAll("[data-it]").forEach(el => {
     el.textContent = el.getAttribute("data-" + lang);
   });
+
+  // Update search/filter controls
+  document.getElementById("searchInput").placeholder = t.searchPlaceholder;
+  if (data.length > 0) populateGGFilter();
+  updateSearchCount();
 
   // Re-render stats and visualization
   if (data.length > 0) {
@@ -623,8 +707,11 @@ function draw() {
   ctx.fillStyle = "#0a0a0f";
   ctx.fillRect(0, 0, w / dpr, h / dpr);
 
+  const filtering = hasActiveFilter();
+
   for (const r of rects) {
     const isHovered = r === hovered;
+    const matched = !filtering || isMatch(r);
 
     const g = GAP / 2;
     const rx = r.rx + g;
@@ -634,8 +721,8 @@ function draw() {
 
     if (rw <= 0 || rh <= 0) continue;
 
-    const fillAlpha = isHovered ? 0.8 : 0.5;
-    ctx.fillStyle = exposureColorCSS(r.exposure, fillAlpha);
+    const fillAlpha = !matched ? 0.08 : isHovered ? 0.8 : 0.5;
+    ctx.fillStyle = !matched ? "rgba(60,60,70,0.3)" : exposureColorCSS(r.exposure, fillAlpha);
     ctx.fillRect(rx, ry, rw, rh);
 
     if (isHovered) {
@@ -644,7 +731,8 @@ function draw() {
       ctx.strokeRect(rx, ry, rw, rh);
     }
 
-    // Label rendering — adaptive to rectangle size
+    // Label rendering — adaptive to rectangle size (skip if dimmed)
+    if (!matched) { continue; }
     ctx.save();
     ctx.beginPath();
     ctx.rect(rx + 2, ry + 1, rw - 4, rh - 2);
@@ -727,9 +815,11 @@ function hitTest(mx, my) {
   const sidebarW = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w'));
   const cx = mx - sidebarW;
   const cy = my;
+  const filtering = hasActiveFilter();
   for (let i = rects.length - 1; i >= 0; i--) {
     const r = rects[i];
     if (cx >= r.rx && cx < r.rx + r.rw && cy >= r.ry && cy < r.ry + r.rh) {
+      if (filtering && !isMatch(r)) return null;
       return r;
     }
   }
@@ -896,8 +986,25 @@ function drawSunburst() {
   const ringWidth = maxR / levels;
   const innerGap = maxR * 0.08; // small center hole
 
+  const filtering = hasActiveFilter();
+
   for (const arc of sunburstArcs) {
     const isHovered = arc === hovered;
+    // Determine if arc matches filter
+    let matched = true;
+    if (filtering) {
+      if (arc.isLeaf && arc.data) {
+        matched = isMatch(arc.data);
+      } else if (ggFilterValue && arc.depth === 1) {
+        matched = String(arc.key) === ggFilterValue;
+      } else if (ggFilterValue && arc.depth > 1) {
+        // Check if this arc's key starts with the GG code
+        matched = String(arc.key).startsWith(ggFilterValue + ".");
+      }
+      // For search on non-leaf: keep visible (parent groupings)
+      if (searchQuery && !arc.isLeaf) matched = true;
+    }
+
     const innerR = innerGap + (arc.depth - 1) * ringWidth;
     const outerR = innerGap + arc.depth * ringWidth;
     const gap = 0.003; // small gap between arcs
@@ -906,12 +1013,12 @@ function drawSunburst() {
     const endAngle = arc.endAngle - gap;
     if (endAngle <= startAngle) continue;
 
-    const fillAlpha = isHovered ? 0.9 : 0.6;
+    const fillAlpha = !matched ? 0.1 : isHovered ? 0.9 : 0.6;
     ctx.beginPath();
     ctx.arc(cx, cy, outerR, startAngle, endAngle);
     ctx.arc(cx, cy, innerR, endAngle, startAngle, true);
     ctx.closePath();
-    ctx.fillStyle = exposureColorCSS(arc.avgExposure, fillAlpha);
+    ctx.fillStyle = !matched ? "rgba(60,60,70,0.2)" : exposureColorCSS(arc.avgExposure, fillAlpha);
     ctx.fill();
 
     if (isHovered) {
@@ -1071,16 +1178,18 @@ function drawColumns() {
 
   // Rectangles
   const gap = 0.5;
+  const filtering = hasActiveFilter();
   for (const r of colRects) {
     const isHovered = r === hovered;
+    const matched = !filtering || isMatch(r);
     const rx = r.rx + gap;
     const ry = r.ry + gap;
     const rw = r.rw - gap * 2;
     const rh = r.rh - gap * 2;
     if (rw <= 0 || rh <= 0) continue;
 
-    const fillAlpha = isHovered ? 0.8 : 0.5;
-    ctx.fillStyle = exposureColorCSS(r.exposure, fillAlpha);
+    const fillAlpha = !matched ? 0.08 : isHovered ? 0.8 : 0.5;
+    ctx.fillStyle = !matched ? "rgba(60,60,70,0.3)" : exposureColorCSS(r.exposure, fillAlpha);
     ctx.fillRect(rx, ry, rw, rh);
 
     if (isHovered) {
@@ -1088,6 +1197,8 @@ function drawColumns() {
       ctx.lineWidth = 2;
       ctx.strokeRect(rx, ry, rw, rh);
     }
+
+    if (!matched) continue;
 
     ctx.save();
     ctx.beginPath();
@@ -1129,9 +1240,11 @@ function hitTestColumns(mx, my) {
   const sidebarW = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w'));
   const cx = mx - sidebarW;
   const cy = my;
+  const filtering = hasActiveFilter();
   for (let i = colRects.length - 1; i >= 0; i--) {
     const r = colRects[i];
     if (cx >= r.rx && cx < r.rx + r.rw && cy >= r.ry && cy < r.ry + r.rh) {
+      if (filtering && !isMatch(r)) return null;
       return r;
     }
   }
@@ -1357,12 +1470,82 @@ function drawGradientLegend() {
   }
 }
 
+// ── Search & Filter ────────────────────────────────────────────────────
+
+let searchQuery = "";
+let ggFilterValue = "";
+
+function isMatch(d) {
+  if (ggFilterValue && String(d.grande_gruppo) !== ggFilterValue) return false;
+  if (!searchQuery) return true;
+  const q = searchQuery.toLowerCase();
+  const fields = [
+    d.title_it, d.title_en, d.code,
+    d.grande_gruppo_name_it, d.grande_gruppo_name_en,
+    d.exposure_rationale_it, d.exposure_rationale_en,
+  ];
+  return fields.some(f => f && String(f).toLowerCase().includes(q));
+}
+
+function hasActiveFilter() {
+  return searchQuery.length > 0 || ggFilterValue.length > 0;
+}
+
+function updateSearchCount() {
+  const el = document.getElementById("searchCount");
+  if (!hasActiveFilter()) { el.textContent = ""; return; }
+  const t = T[currentLang];
+  const matched = data.filter(isMatch).length;
+  el.textContent = `${matched} ${t.matchesOf} ${data.length} ${t.matchesFound}`;
+}
+
+function populateGGFilter() {
+  const sel = document.getElementById("ggFilter");
+  // Keep first "All" option, remove the rest
+  while (sel.options.length > 1) sel.remove(1);
+  const ggs = {};
+  for (const d of data) {
+    if (!ggs[d.grande_gruppo]) {
+      ggs[d.grande_gruppo] = currentLang === "en"
+        ? (d.grande_gruppo_name_en || d.grande_gruppo_name_it)
+        : d.grande_gruppo_name_it;
+    }
+  }
+  Object.keys(ggs).sort((a, b) => Number(a) - Number(b)).forEach(gg => {
+    const opt = document.createElement("option");
+    opt.value = gg;
+    opt.textContent = `GG${gg} – ${ggs[gg]}`;
+    sel.appendChild(opt);
+  });
+  // Update the "All" option text
+  sel.options[0].textContent = T[currentLang].allGG;
+}
+
+document.getElementById("searchInput").addEventListener("input", function() {
+  searchQuery = this.value.trim();
+  updateSearchCount();
+  redraw();
+});
+
+document.getElementById("ggFilter").addEventListener("change", function() {
+  ggFilterValue = this.value;
+  updateSearchCount();
+  redraw();
+});
+
+function redraw() {
+  if (currentView === "treemap") draw();
+  else if (currentView === "sunburst") drawSunburst();
+  else drawColumns();
+}
+
 // ── Load ───────────────────────────────────────────────────────────────
 
 fetch("data.json")
   .then(r => r.json())
   .then(d => {
     data = d;
+    populateGGFilter();
     computeStats();
     drawGradientLegend();
     resize();
