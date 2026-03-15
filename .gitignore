@@ -12,10 +12,16 @@ wheels/
 # Secrets
 .env
 
+# Scraped HTML (reproducible via scrape.py, ~9MB)
+html/
+
 # Parsed markdown (reproducible via process.py)
 pages/
 
-# Embeddings (unused in final visualization)
+# Classification hierarchy (reproducible via download_classification.py)
+classificazione_cp2021.json
+
+# Embeddings (unused)
 embed.py
 embeddings.json
 

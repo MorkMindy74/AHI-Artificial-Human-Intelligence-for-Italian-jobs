@@ -1,97 +1,72 @@
-# AI Exposure of the US Job Market
+# Esposizione all'IA del Mercato del Lavoro Italiano
 
-Analyzing how susceptible every occupation in the US economy is to AI and automation, using data from the Bureau of Labor Statistics [Occupational Outlook Handbook](https://www.bls.gov/ooh/) (OOH).
+Analisi dell'esposizione all'intelligenza artificiale di **813 professioni** del mercato del lavoro italiano, basata sulla classificazione ISTAT CP2021.
 
-**Live demo: [karpathy.ai/jobs](https://karpathy.ai/jobs/)**
+*English: AI Exposure of the Italian Job Market — analyzing how susceptible every occupation in the Italian economy is to AI and automation.*
 
-![AI Exposure Treemap](jobs.png)
+## Cosa c'e' qui
 
-## What's here
+La classificazione ISTAT CP2021 copre **813 Unita' Professionali** organizzate in 9 Grandi Gruppi, con descrizioni dettagliate delle mansioni, esempi di professioni e gerarchia a 5 livelli. Abbiamo scaricato tutte le schede, valutato l'esposizione all'IA di ogni professione usando un LLM, e costruito una visualizzazione interattiva.
 
-The BLS OOH covers **342 occupations** spanning every sector of the US economy, with detailed data on job duties, work environment, education requirements, pay, and employment projections. We scraped all of it, scored each occupation's AI exposure using an LLM, and built an interactive treemap visualization.
+La metodologia di scoring integra il framework ["observed exposure"](https://www.anthropic.com/research/labor-market-impacts) di Anthropic Research, distinguendo tra automazione (peso pieno) e augmentazione (peso dimezzato).
 
-## Data pipeline
+## Pipeline dati
 
-1. **Scrape** (`scrape.py`) — Playwright (non-headless, BLS blocks bots) downloads raw HTML for all 342 occupation pages into `html/`.
-2. **Parse** (`parse_detail.py`, `process.py`) — BeautifulSoup converts raw HTML into clean Markdown files in `pages/`.
-3. **Tabulate** (`make_csv.py`) — Extracts structured fields (pay, education, job count, growth outlook, SOC code) into `occupations.csv`.
-4. **Score** (`score.py`) — Sends each occupation's Markdown description to an LLM (Gemini Flash via OpenRouter) with a scoring rubric. Each occupation gets an AI Exposure score from 0-10 with a rationale. Results saved to `scores.json`.
-5. **Build site data** (`build_site_data.py`) — Merges CSV stats and AI exposure scores into a compact `site/data.json` for the frontend.
-6. **Website** (`site/index.html`) — Interactive treemap visualization where area = employment and color = AI exposure (green to red).
+1. **Classificazione** (`download_classification.py`) — Scarica la gerarchia completa CP2021 da professioni.istat.it: 9 Grandi Gruppi > 40 Gruppi > 130 Classi > 510 Categorie > 813 UP. Output: `professioni.json`.
+2. **Scraping** (`scrape.py`) — Scarica le schede dettagliate di ogni professione dal sito ISTAT in `html/`.
+3. **Parsing** (`parse_detail.py`, `process.py`) — BeautifulSoup converte l'HTML in Markdown pulito in `pages/`.
+4. **Tabella** (`make_csv.py`) — Estrae campi strutturati (descrizione, istruzione, esempi) in `professioni.csv`.
+5. **Scoring** (`score.py`) — Invia ogni professione a Claude (Haiku 4.5 via Anthropic SDK) con un rubric di scoring. Output: `scores.json` con punteggio 0-10 e rationale bilingue IT/EN.
+6. **Dati sito** (`build_site_data.py`) — Fonde CSV e score in `site/data.json`.
+7. **Sito web** (`site/index.html`) — Visualizzazione interattiva bilingue con tre viste: treemap, sunburst e colonne.
 
-## Key files
+## Scala di esposizione
 
-| File | Description |
-|------|-------------|
-| `occupations.json` | Master list of 342 occupations with title, URL, category, slug |
-| `occupations.csv` | Summary stats: pay, education, job count, growth projections |
-| `scores.json` | AI exposure scores (0-10) with rationales for all 342 occupations |
-| `prompt.md` | All data in a single file, designed to be pasted into an LLM for analysis |
-| `html/` | Raw HTML pages from BLS (source of truth, ~40MB) |
-| `pages/` | Clean Markdown versions of each occupation page |
-| `site/` | Static website (treemap visualization) |
+| Punteggio | Significato | Esempi |
+|-----------|-------------|--------|
+| 0-1 | Minima | Muratore, giardiniere, sommozzatore |
+| 2-3 | Bassa | Elettricista, idraulico, vigile del fuoco |
+| 4-5 | Moderata | Infermiere, poliziotto, veterinario |
+| 6-7 | Alta | Insegnante, dirigente, commercialista |
+| 8-9 | Molto alta | Sviluppatore software, traduttore, analista dati |
+| 10 | Massima | Addetto inserimento dati, operatore telemarketing |
 
-## AI exposure scoring
+## Fonti dati
 
-Each occupation is scored on a single **AI Exposure** axis from 0 to 10, measuring how much AI will reshape that occupation. The score considers both direct automation (AI doing the work) and indirect effects (AI making workers so productive that fewer are needed).
-
-A key signal is whether the job's work product is fundamentally digital — if the job can be done entirely from a home office on a computer, AI exposure is inherently high. Conversely, jobs requiring physical presence, manual skill, or real-time human interaction have a natural barrier.
-
-**Calibration examples from the dataset:**
-
-| Score | Meaning | Examples |
-|-------|---------|---------|
-| 0-1 | Minimal | Roofers, janitors, construction laborers |
-| 2-3 | Low | Electricians, plumbers, nurses aides, firefighters |
-| 4-5 | Moderate | Registered nurses, retail workers, physicians |
-| 6-7 | High | Teachers, managers, accountants, engineers |
-| 8-9 | Very high | Software developers, paralegals, data analysts, editors |
-| 10 | Maximum | Medical transcriptionists |
-
-Average exposure across all 342 occupations: **5.3/10**.
-
-## Visualization
-
-The main visualization is an interactive **treemap** where:
-- **Area** of each rectangle is proportional to employment (number of jobs)
-- **Color** indicates AI exposure on a green (safe) to red (exposed) scale
-- **Layout** groups occupations by BLS category
-- **Hover** shows detailed tooltip with pay, jobs, outlook, education, exposure score, and LLM rationale
-
-## LLM prompt
-
-[`prompt.md`](prompt.md) packages all the data — aggregate statistics, tier breakdowns, exposure by pay/education, BLS growth projections, and all 342 occupations with their scores and rationales — into a single file (~45K tokens) designed to be pasted into an LLM. This lets you have a data-grounded conversation about AI's impact on the job market without needing to run any code. Regenerate it with `uv run python make_prompt.py`.
+- **Professioni:** [ISTAT CP2021](https://professioni.istat.it/sistemainformativoprofessioni/cp/) — Classificazione delle Professioni 2021
+- **Scoring IA:** [Claude Haiku 4.5](https://www.anthropic.com/) via Anthropic SDK
+- **Framework:** [Anthropic Research — Labor Market Impacts](https://www.anthropic.com/research/labor-market-impacts)
 
 ## Setup
 
-```
+```bash
 uv sync
-uv run playwright install chromium
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 ```
 
-Requires an OpenRouter API key in `.env`:
-```
-OPENROUTER_API_KEY=your_key_here
-```
-
-## Usage
+## Esecuzione completa
 
 ```bash
-# Scrape BLS pages (only needed once, results are cached in html/)
-uv run python scrape.py
-
-# Generate Markdown from HTML
-uv run python process.py
-
-# Generate CSV summary
-uv run python make_csv.py
-
-# Score AI exposure (uses OpenRouter API)
-uv run python score.py
-
-# Build website data
-uv run python build_site_data.py
-
-# Serve the site locally
-cd site && python -m http.server 8000
+uv run python download_classification.py   # 1. Scarica classificazione CP2021
+uv run python scrape.py                     # 2. Scarica schede ISTAT (~7 min)
+uv run python process.py                    # 3. HTML -> Markdown
+uv run python make_csv.py                   # 4. Genera CSV
+uv run python score.py                      # 5. Scoring AI (~$0.50, ~15 min)
+uv run python build_site_data.py            # 6. Genera dati sito
+uv run python make_prompt.py                # 7. Genera report analisi
+cd site && python -m http.server 8000       # 8. Visualizza
 ```
+
+## Visualizzazione
+
+Il sito offre tre viste:
+
+- **Treemap** — Rettangoli raggruppati per Grande Gruppo, colore = esposizione IA
+- **Sunburst** — Cerchi concentrici con tutti i 5 livelli della gerarchia CP2021
+- **Colonne** — Distribuzione per punteggio di esposizione
+
+Interfaccia bilingue IT/EN con toggle nel sidebar.
+
+## Crediti
+
+Basato su [AI Exposure of the US Job Market](https://github.com/karpathy/jobs) di Andrej Karpathy, adattato per il mercato del lavoro italiano.

@@ -1,10 +1,11 @@
 [project]
-name = "jobs"
+name = "jobs-italia"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI Exposure of the Italian Job Market — ISTAT CP2021"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "anthropic>=0.40.0",
     "beautifulsoup4>=4.14.3",
     "httpx>=0.28.1",
     "playwright>=1.58.0",

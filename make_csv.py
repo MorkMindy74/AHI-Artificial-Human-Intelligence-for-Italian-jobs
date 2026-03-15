@@ -1,7 +1,7 @@
 """
-Build a CSV summary of all occupations from the scraped HTML files.
+Build a CSV summary of all Italian professions from scraped HTML and classification data.
 
-Reads from html/<slug>.html, writes to occupations.csv.
+Reads from professioni.json and html/<slug>.html, writes to professioni.csv.
 
 Usage:
     uv run python make_csv.py
@@ -18,151 +18,118 @@ def clean(text):
     return re.sub(r'\s+', ' ', text).strip()
 
 
-def parse_pay(value):
-    """Parse '62,350 per year $29.98 per hour' or '$23.33 per hour' into (annual, hourly)."""
-    annual = ""
-    hourly = ""
-    # Find all dollar amounts
-    amounts = re.findall(r'\$([\d,]+(?:\.\d+)?)', value)
-    if "per year" in value and "per hour" in value and len(amounts) >= 2:
-        annual = amounts[0].replace(",", "")
-        hourly = amounts[1].replace(",", "")
-    elif "per year" in value and amounts:
-        annual = amounts[0].replace(",", "")
-    elif "per hour" in value and amounts:
-        hourly = amounts[0].replace(",", "")
-    return annual, hourly
+# Education level inferred from Grande Gruppo
+EDUCATION_BY_GG = {
+    1: "Laurea magistrale o superiore",
+    2: "Laurea magistrale o superiore",
+    3: "Laurea triennale / Diploma tecnico superiore",
+    4: "Diploma di scuola superiore",
+    5: "Diploma di scuola superiore / Qualifica professionale",
+    6: "Qualifica professionale / Apprendistato",
+    7: "Qualifica professionale / Licenza media",
+    8: "Nessun titolo specifico",
+    9: "Variabile per grado",
+}
+
+EDUCATION_EN_BY_GG = {
+    1: "Master's degree or higher",
+    2: "Master's degree or higher",
+    3: "Bachelor's degree / Higher technical diploma",
+    4: "High school diploma",
+    5: "High school diploma / Vocational qualification",
+    6: "Vocational qualification / Apprenticeship",
+    7: "Vocational qualification / Middle school",
+    8: "No specific qualification",
+    9: "Varies by rank",
+}
 
 
-def parse_outlook(value):
-    """Parse '9% (Much faster than average)' into (pct, description)."""
-    m = re.match(r'(-?\d+)%\s*\((.+)\)', value)
-    if m:
-        return m.group(1), m.group(2)
-    m = re.match(r'(-?\d+)%', value)
-    if m:
-        return m.group(1), ""
-    return "", value
-
-
-def parse_number(value):
-    """Strip commas and return a clean number string."""
-    cleaned = value.replace(",", "").strip()
-    # Handle negative numbers
-    if re.match(r'^-?\d+$', cleaned):
-        return cleaned
-    return value.strip()
-
-
-def extract_occupation(html_path, occ_meta):
-    """Extract one row of data from an HTML file."""
-    with open(html_path) as f:
+def extract_description(html_path):
+    """Extract the description from an ISTAT scheda page."""
+    with open(html_path, encoding="utf-8") as f:
         soup = BeautifulSoup(f.read(), "html.parser")
 
-    row = {
-        "title": occ_meta["title"],
-        "category": occ_meta["category"],
-        "slug": occ_meta["slug"],
-        "url": occ_meta["url"],
-        "soc_code": "",
-        "median_pay_annual": "",
-        "median_pay_hourly": "",
-        "entry_education": "",
-        "work_experience": "",
-        "training": "",
-        "num_jobs_2024": "",
-        "outlook_pct": "",
-        "outlook_desc": "",
-        "employment_change": "",
-        "projected_employment_2034": "",
-    }
+    desc_p = soup.find("p", class_="black")
+    if desc_p:
+        return clean(desc_p.get_text())
+    return ""
 
-    # Quick Facts table
-    qf_table = soup.find("table", id="quickfacts")
-    if qf_table:
-        tbody = qf_table.find("tbody")
-        if tbody:
-            for tr in tbody.find_all("tr"):
-                th = tr.find("th")
-                td = tr.find("td")
-                if not th or not td:
-                    continue
-                field = clean(th.get_text()).lower()
-                value = clean(td.get_text())
 
-                if "median pay" in field:
-                    row["median_pay_annual"], row["median_pay_hourly"] = parse_pay(value)
-                elif "entry-level education" in field:
-                    row["entry_education"] = value
-                elif "work experience" in field:
-                    row["work_experience"] = value
-                elif "on-the-job training" in field:
-                    row["training"] = value
-                elif "number of jobs" in field:
-                    row["num_jobs_2024"] = parse_number(value)
-                elif "job outlook" in field:
-                    row["outlook_pct"], row["outlook_desc"] = parse_outlook(value)
-                elif "employment change" in field:
-                    row["employment_change"] = parse_number(value)
+def extract_examples(html_path):
+    """Extract example profession titles from an ISTAT scheda page."""
+    with open(html_path, encoding="utf-8") as f:
+        soup = BeautifulSoup(f.read(), "html.parser")
 
-    # Projections table (for SOC code and projected employment)
-    outlook_table = soup.find("table", id="outlook-table")
-    if outlook_table:
-        tbody = outlook_table.find("tbody")
-        if tbody:
-            tr = tbody.find("tr")
-            if tr:
-                cells = [clean(c.get_text()) for c in tr.find_all(["td", "th"])]
-                # cells: [Title, SOC, Emp2024, Emp2034, %change, numchange, ...]
-                if len(cells) >= 4:
-                    soc = cells[1]
-                    if soc != "—":
-                        row["soc_code"] = soc
-                    row["projected_employment_2034"] = parse_number(cells[3])
-
-    # Impute missing pay: annual <-> hourly using 2080 hours/year
-    if row["median_pay_annual"] and not row["median_pay_hourly"]:
-        row["median_pay_hourly"] = f"{float(row['median_pay_annual']) / 2080:.2f}"
-    elif row["median_pay_hourly"] and not row["median_pay_annual"]:
-        row["median_pay_annual"] = str(round(float(row["median_pay_hourly"]) * 2080))
-
-    return row
+    examples_h3 = soup.find("h3", string=re.compile(r"ESEMPI DI PROFESSIONI", re.I))
+    if examples_h3:
+        container = examples_h3.find_parent("tr")
+        if container:
+            next_tr = container.find_next_sibling("tr")
+            if next_tr:
+                return [clean(li.get_text()) for li in next_tr.find_all("li")
+                        if clean(li.get_text())]
+    return []
 
 
 def main():
-    with open("occupations.json") as f:
-        occupations = json.load(f)
+    with open("professioni.json", encoding="utf-8") as f:
+        professioni = json.load(f)
 
     fieldnames = [
-        "title", "category", "slug", "soc_code",
-        "median_pay_annual", "median_pay_hourly",
-        "entry_education", "work_experience", "training",
-        "num_jobs_2024", "projected_employment_2034",
-        "outlook_pct", "outlook_desc", "employment_change",
-        "url",
+        "code", "title_it", "slug", "grande_gruppo",
+        "grande_gruppo_name_it", "gruppo", "classe", "categoria",
+        "education_it", "education_en",
+        "description", "examples",
+        "istat_url", "inapp_url",
     ]
 
     rows = []
     missing = 0
-    for occ in occupations:
-        html_path = f"html/{occ['slug']}.html"
-        if not os.path.exists(html_path):
-            missing += 1
-            continue
-        row = extract_occupation(html_path, occ)
-        rows.append(row)
+    for prof in professioni:
+        html_path = f"html/{prof['slug']}.html"
 
-    with open("occupations.csv", "w", newline="") as f:
+        description = ""
+        examples = []
+        if os.path.exists(html_path):
+            description = extract_description(html_path)
+            examples = extract_examples(html_path)
+        else:
+            missing += 1
+
+        gg = prof["grande_gruppo"]
+        rows.append({
+            "code": prof["code"],
+            "title_it": prof["title_it"],
+            "slug": prof["slug"],
+            "grande_gruppo": gg,
+            "grande_gruppo_name_it": prof["grande_gruppo_name_it"],
+            "gruppo": prof["gruppo"],
+            "classe": prof["classe"],
+            "categoria": prof["categoria"],
+            "education_it": EDUCATION_BY_GG.get(gg, ""),
+            "education_en": EDUCATION_EN_BY_GG.get(gg, ""),
+            "description": description,
+            "examples": "; ".join(examples),
+            "istat_url": prof.get("istat_url", ""),
+            "inapp_url": prof.get("inapp_url", ""),
+        })
+
+    with open("professioni.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
-    print(f"Wrote {len(rows)} rows to occupations.csv (missing HTML: {missing})")
+    print(f"Wrote {len(rows)} rows to professioni.csv (missing HTML: {missing})")
 
     # Quick sanity check
+    with_desc = sum(1 for r in rows if r["description"])
+    with_examples = sum(1 for r in rows if r["examples"])
+    print(f"With description: {with_desc}/{len(rows)}")
+    print(f"With examples: {with_examples}/{len(rows)}")
+
     print(f"\nSample rows:")
     for r in rows[:3]:
-        print(f"  {r['title']}: ${r['median_pay_annual']}/yr, {r['num_jobs_2024']} jobs, {r['outlook_pct']}% outlook")
+        print(f"  {r['code']} {r['title_it'][:40]}: GG{r['grande_gruppo']}, {r['education_it']}")
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 Process scraped HTML files into Markdown.
 
 Reads from html/<slug>.html, writes to pages/<slug>.md.
-Reuses parse_detail.parse_ooh_page() which is already tested.
+Reuses parse_detail.parse_profession_page() for ISTAT pages.
 
 Usage:
     uv run python process.py              # process all HTML files
@@ -12,7 +12,7 @@ Usage:
 import argparse
 import json
 import os
-from parse_detail import parse_ooh_page
+from parse_detail import parse_profession_page
 
 
 def main():
@@ -22,16 +22,15 @@ def main():
 
     os.makedirs("pages", exist_ok=True)
 
-    # Load master list for ordering/metadata
-    with open("occupations.json") as f:
-        occupations = json.load(f)
+    with open("professioni.json", encoding="utf-8") as f:
+        professioni = json.load(f)
 
     processed = 0
     skipped = 0
     missing = 0
 
-    for occ in occupations:
-        slug = occ["slug"]
+    for prof in professioni:
+        slug = prof["slug"]
         html_path = f"html/{slug}.html"
         md_path = f"pages/{slug}.md"
 
@@ -43,10 +42,13 @@ def main():
             skipped += 1
             continue
 
-        md = parse_ooh_page(html_path)
-        with open(md_path, "w") as f:
-            f.write(md)
-        processed += 1
+        try:
+            md = parse_profession_page(html_path)
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(md)
+            processed += 1
+        except Exception as e:
+            print(f"  ERROR parsing {slug}: {e}")
 
     total_html = len([f for f in os.listdir("html") if f.endswith(".html")])
     total_md = len([f for f in os.listdir("pages") if f.endswith(".md")])
