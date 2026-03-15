@@ -1475,6 +1475,79 @@ function drawGradientLegend() {
 let searchQuery = "";
 let ggFilterValue = "";
 
+// Synonym map: common Italian terms → ISTAT search terms
+const SYNONYMS = {
+  "commercialista": ["contabilit", "fiscalist", "tributarist", "revisore", "contabil"],
+  "avvocato": ["avvocat", "giuridic", "forense", "procurator"],
+  "medico": ["medici", "mediche", "chirurg", "medicina"],
+  "dottore": ["medici", "mediche", "medicina"],
+  "ingegnere": ["ingegner", "ingegneria"],
+  "architetto": ["architet", "progettist"],
+  "infermiere": ["infermier", "assistenza sanitaria"],
+  "insegnante": ["insegnant", "docent", "professor", "maestr"],
+  "professore": ["docent", "insegnant", "professor"],
+  "maestro": ["maestr", "insegnant", "scuola primaria"],
+  "operaio": ["operai", "manoval", "lavorator"],
+  "muratore": ["murat", "edili", "muratura", "intonacator"],
+  "elettricista": ["elettric", "impiantist"],
+  "idraulico": ["idraulic", "termoidraulic", "tubist"],
+  "meccanico": ["meccan", "riparator", "autoveicol"],
+  "falegname": ["falegnami", "legno", "mobilier", "ebanist"],
+  "cuoco": ["cuoch", "gastronom", "cucina"],
+  "chef": ["cuoch", "gastronom", "cucina"],
+  "cameriere": ["camerier", "sala", "ristorazion"],
+  "barista": ["bar", "bevand", "caffetteria"],
+  "farmacista": ["farmacist", "farmacia", "farmaceutic"],
+  "veterinario": ["veterinar", "animal"],
+  "psicologo": ["psicolog", "psicoterap"],
+  "dentista": ["dentist", "odontoiatr", "odontotecn"],
+  "notaio": ["notai", "notarile"],
+  "giornalista": ["giornalist", "redattor", "editoria"],
+  "programmatore": ["programmat", "sviluppatore software", "software developer", "analisti e progettisti"],
+  "informatico": ["informatic", "ICT", "software", "sistemi informativi"],
+  "geometra": ["geometr", "topograf", "catast"],
+  "ragioniere": ["ragionier", "contabil", "contabilit"],
+  "segretaria": ["segretari", "front office", "attivit di segreteria"],
+  "impiegato": ["impiegat", "addetti agli sportelli", "personale di ufficio"],
+  "poliziotto": ["polizi", "pubblica sicurezza", "forze dell'ordine"],
+  "carabiniere": ["carabinier", "forze armate", "pubblica sicurezza"],
+  "vigile": ["vigil", "polizia municipal", "urbana"],
+  "pompiere": ["vigili del fuoco", "antincend", "soccorso"],
+  "postino": ["postal", "corrispondenza", "recapit"],
+  "tassista": ["taxi", "autista", "conducent"],
+  "camionista": ["camion", "autotraspor", "veicoli pesanti"],
+  "parrucchiere": ["parrucchier", "acconciator", "barbier"],
+  "estetista": ["estetist", "estetica", "trattamenti"],
+  "fabbro": ["fabbr", "metallurg", "saldator"],
+  "contadino": ["agricol", "coltivatr", "ortolano"],
+  "pescatore": ["pescat", "pesca", "ittic"],
+  "panettiere": ["panettier", "panificator", "forn"],
+  "macellaio": ["macellai", "carni"],
+  "sarto": ["sart", "confezione", "abbigliament"],
+  "giardiniere": ["giardini", "verde", "manutenzione aree"],
+  "biologo": ["biolog", "biotecnolog"],
+  "chimico": ["chimic", "laboratorio"],
+  "fisico": ["fisic", "ricercat"],
+  "economista": ["economist", "economia", "statistic"],
+  "sociologo": ["sociolog", "ricerca social"],
+  "filosofo": ["filosof", "umanistic"],
+  "traduttore": ["traduttor", "interprete", "lingu"],
+  "pilota": ["pilota", "piloti", "aviatore", "navigazione aerea"],
+  "marinaio": ["marinai", "navigazione", "marittim"],
+  "autista": ["autist", "conducent", "guidator"],
+};
+
+function expandQuery(q) {
+  const ql = q.toLowerCase();
+  const extra = [];
+  for (const [term, syns] of Object.entries(SYNONYMS)) {
+    if (ql.includes(term)) {
+      extra.push(...syns);
+    }
+  }
+  return extra;
+}
+
 function isMatch(d) {
   if (ggFilterValue && String(d.grande_gruppo) !== ggFilterValue) return false;
   if (!searchQuery) return true;
@@ -1483,8 +1556,13 @@ function isMatch(d) {
     d.title_it, d.title_en, d.code,
     d.grande_gruppo_name_it, d.grande_gruppo_name_en,
     d.exposure_rationale_it, d.exposure_rationale_en,
+    d.description, d.examples,
   ];
-  return fields.some(f => f && String(f).toLowerCase().includes(q));
+  const text = fields.filter(Boolean).map(f => String(f).toLowerCase()).join(" ");
+  if (text.includes(q)) return true;
+  // Try synonyms
+  const syns = expandQuery(q);
+  return syns.some(s => text.includes(s.toLowerCase()));
 }
 
 function hasActiveFilter() {
