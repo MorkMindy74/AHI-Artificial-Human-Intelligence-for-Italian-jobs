@@ -642,29 +642,48 @@ function draw() {
       ctx.strokeRect(rx, ry, rw, rh);
     }
 
-    const minW = 50;
-    const minH = 18;
-    if (rw > minW && rh > minH) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(rx + 4, ry + 2, rw - 8, rh - 4);
-      ctx.clip();
+    // Label rendering — adaptive to rectangle size
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(rx + 2, ry + 1, rw - 4, rh - 2);
+    ctx.clip();
+    ctx.textBaseline = "top";
 
-      const fontSize = Math.min(13, Math.max(9, Math.min(rw / 10, rh / 3)));
+    if (rw > 70 && rh > 28) {
+      // Large rect: full title + score
+      const fontSize = Math.min(12, Math.max(8, Math.min(rw / 12, rh / 4)));
       ctx.font = `500 ${fontSize}px -apple-system, system-ui, sans-serif`;
-      ctx.fillStyle = isHovered ? "#fff" : "rgba(255,255,255,0.85)";
-      ctx.textBaseline = "top";
-      ctx.fillText(getTitle(r), rx + 5, ry + 4);
-
-      if (rh > 34 && rw > 60) {
+      ctx.fillStyle = isHovered ? "#fff" : "rgba(255,255,255,0.9)";
+      const title = getTitle(r);
+      const maxChars = Math.floor((rw - 8) / (fontSize * 0.55));
+      ctx.fillText(title.length > maxChars ? title.substring(0, maxChars - 1) + "\u2026" : title, rx + 4, ry + 3);
+      if (rh > 38) {
         const info = r.exposure != null ? r.exposure + "/10" : "";
-        ctx.font = `400 ${Math.max(8, fontSize - 2)}px -apple-system, system-ui, sans-serif`;
+        ctx.font = `400 ${Math.max(7, fontSize - 2)}px -apple-system, system-ui, sans-serif`;
         ctx.fillStyle = "rgba(255,255,255,0.5)";
-        ctx.fillText(info, rx + 5, ry + 4 + fontSize + 2);
+        ctx.fillText(info, rx + 4, ry + 3 + fontSize + 1);
       }
-
-      ctx.restore();
+    } else if (rw > 30 && rh > 16) {
+      // Medium rect: truncated title
+      const fontSize = Math.min(9, Math.max(7, Math.min(rw / 8, rh / 3)));
+      ctx.font = `500 ${fontSize}px -apple-system, system-ui, sans-serif`;
+      ctx.fillStyle = isHovered ? "#fff" : "rgba(255,255,255,0.8)";
+      const title = getTitle(r);
+      const maxChars = Math.floor((rw - 6) / (fontSize * 0.52));
+      if (maxChars > 3) {
+        ctx.fillText(title.length > maxChars ? title.substring(0, maxChars - 1) + "\u2026" : title, rx + 3, ry + 2);
+      }
+    } else if (rw > 14 && rh > 10) {
+      // Tiny rect: just the score number
+      const fontSize = Math.min(8, Math.max(6, Math.min(rw / 3, rh / 2)));
+      ctx.font = `600 ${fontSize}px -apple-system, system-ui, sans-serif`;
+      ctx.fillStyle = isHovered ? "#fff" : "rgba(255,255,255,0.6)";
+      if (r.exposure != null) {
+        ctx.fillText(String(r.exposure), rx + 2, ry + 1);
+      }
     }
+
+    ctx.restore();
   }
 }
 
@@ -1031,21 +1050,32 @@ function drawColumns() {
       ctx.strokeRect(rx, ry, rw, rh);
     }
 
-    if (rw > 40 && rh > 14) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(rx + 3, ry + 1, rw - 6, rh - 2);
-      ctx.clip();
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(rx + 2, ry + 1, rw - 4, rh - 2);
+    ctx.clip();
+    ctx.textBaseline = "top";
+    ctx.textAlign = "left";
 
-      const fontSize = Math.min(12, Math.max(8, Math.min(rw / 12, rh / 2.5)));
+    if (rw > 40 && rh > 14) {
+      const fontSize = Math.min(11, Math.max(7, Math.min(rw / 12, rh / 2.5)));
       ctx.font = `500 ${fontSize}px -apple-system, system-ui, sans-serif`;
       ctx.fillStyle = isHovered ? "#fff" : "rgba(255,255,255,0.85)";
-      ctx.textBaseline = "top";
-      ctx.textAlign = "left";
-      ctx.fillText(getTitle(r), rx + 4, ry + 2);
-
-      ctx.restore();
+      const title = getTitle(r);
+      const maxChars = Math.floor((rw - 6) / (fontSize * 0.55));
+      ctx.fillText(title.length > maxChars ? title.substring(0, maxChars - 1) + "\u2026" : title, rx + 3, ry + 2);
+    } else if (rw > 18 && rh > 10) {
+      const fontSize = Math.min(8, Math.max(6, Math.min(rw / 4, rh / 2)));
+      ctx.font = `500 ${fontSize}px -apple-system, system-ui, sans-serif`;
+      ctx.fillStyle = isHovered ? "#fff" : "rgba(255,255,255,0.7)";
+      const title = getTitle(r);
+      const maxChars = Math.floor((rw - 4) / (fontSize * 0.52));
+      if (maxChars > 2) {
+        ctx.fillText(title.length > maxChars ? title.substring(0, maxChars - 1) + "\u2026" : title, rx + 2, ry + 1);
+      }
     }
+
+    ctx.restore();
   }
 }
 
